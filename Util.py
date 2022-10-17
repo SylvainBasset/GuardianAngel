@@ -2,7 +2,13 @@
 import os, time, re
 import subprocess
 
-batcmd="dir"
+from PIL import Image
+from pytesseract import pytesseract
+
+# Pour l'installation :
+# sudo apt install tesseract-ocr
+# sudo apt install libtesseract-dev
+
 
 #---------------------------------------------------------------------------#
 class device:
@@ -14,6 +20,7 @@ class device:
    #---------------------------------------------------------------------------#
    def __init__(self, Serial):
       self._Serial = Serial
+      pytesseract.tesseract_cmd = r'tesseract'
 
    #---------------------------------------------------------------------------#
    def Dbg( self, Msg ):
@@ -28,6 +35,7 @@ class device:
          self._XSize = int( m.groups()[0], 10)
          self._YSize = int( m.groups()[1], 10)
       print(res)
+
    #---------------------------------------------------------------------------#
    def Tap( self, RatioX, RatioY ):
       AbsX = RatioX * self._XSize
@@ -36,9 +44,24 @@ class device:
       subprocess.check_output( Cmd, shell=True)
 
    #---------------------------------------------------------------------------#
+   def GetTextFromScreen( self ) :
+      Cmd = "adb exec-out screencap -p > _TmpSrc.png"
+      subprocess.check_output( Cmd, shell=True)
+                                    # Open image with PIL
+      img = Image.open("_TmpSrc.png")
+                                    # Extract text from image
+      text = pytesseract.image_to_string(img)
+
+      Cmd = "rm _TmpSrc.png"
+      subprocess.check_output( Cmd, shell=True)
+
+      return text
+
+   #---------------------------------------------------------------------------#
    def Wakeup( self ):
       Cmd = "adb -s %s shell input keyevent KEYCODE_WAKEUP"%self._Serial
       subprocess.check_output( Cmd, shell=True)
+
 
    #---------------------------------------------------------------------------#
    def LockitoStart( self ):
@@ -65,20 +88,50 @@ class device:
       #time.sleep(1)
 
 
-#574 999 ->
-
-#603 985
-
    #---------------------------------------------------------------------------#
    def WazeStart( self ):
       Cmd = "adb -s %s shell monkey -p com.waze -v 1"%self._Serial
       subprocess.check_output( Cmd, shell=True)
       time.sleep(5)
-                                       # deny previous travel and make search bar clean
-      self.Tap( 0.0667, 0.5546 )                                                          # 0.2667, 0.5546
+
+      self.WazeBullshitRemover()
+      time.sleep(5)
+      self.WazeBullshitRemover()
+
+      StdScreenTxt = self.GetTextFromScreen()
+
+      self.Dbg(StdScreenTxt)
+
+      if re.search( r'\d{1,2}:\d{1,2}\s*h\s*.*\s*\d+\s*km', StdScreenTxt) :
+         self.Dbg("Parcours en cours trouvé")
+
+         self.Tap( 0.8889, 0.9066 )    # tap on the little arrow to open travel
+         time.sleep(1)
+
+         self.Tap( 0.1583, 0.9066 )    # top on stop to cancel travel
+         time.sleep(1)
+
+      else:
+         self.Tap( 0.4972, 0.3704 )    # top on stop to cancel travel
+         time.sleep(1)
+
+      self.WazeBullshitRemover()
+
+
+   #---------------------------------------------------------------------------#
+   def WazeBullshitRemover( self ):
+                                       # Tap on back key until
+      while ( not re.search( r'Voulez-vous quitter Waze', self.GetTextFromScreen() ) ) :
+         Cmd = "adb -s %s shell input keyevent KEYCODE_BACK"%self._Serial
+         subprocess.check_output( Cmd, shell=True)
+         self.Dbg( "Back")
+         time.sleep(1)
+
+      Cmd = "adb -s %s shell input keyevent KEYCODE_BACK"%self._Serial
+      subprocess.check_output( Cmd, shell=True)
+      self.Dbg( "Quitter Waze détecté : back again pour revenir sur l'écran initial")
       time.sleep(1)
-      self.Tap( 0.0667, 0.5546 )
-      time.sleep(1)
+
 
    #---------------------------------------------------------------------------#
    def WazeGoto( self, Name ):
@@ -94,8 +147,13 @@ class device:
       time.sleep(3)
                                        # Tap to "y aller"
       self.Tap( 0.6972, 0.9237 )
-      time.sleep(15)
+      time.sleep(3)
+                                       # Tap to "y aller"
+      self.Tap( 0.6972, 0.9237 )
 
+      self.Dbg("Go to %s"%Name)
+
+      time.sleep(15)
 
       # Cmd = "adb -s %s shell input keyevent 66"%(self._Serial)
       # subprocess.check_output( Cmd, shell=True)
@@ -181,11 +239,11 @@ if __name__ == "__main__" :
       time.sleep(3)
       DevObj.GetSize()
 
-      DevObj.LockitoStart()
-      DevObj.LockitoStartTravel()
+      #DevObj.LockitoStart()
+      #DevObj.LockitoStartTravel()
 
       DevObj.WazeStart()
-      DevObj.WazeGoto( "Lyon" )
+      DevObj.WazeGoto( "Cuculet" )        # Note : doit être une ville sans crit'air
 
 
       time.sleep(3)
