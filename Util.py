@@ -4,10 +4,15 @@ import subprocess
 
 from PIL import Image
 from pytesseract import pytesseract
+import cv2
 
 # Pour l'installation :
 # sudo apt install tesseract-ocr
 # sudo apt install libtesseract-dev
+
+# pour cv2 :
+# python3 -m pip install opencv-python
+
 
 
 #---------------------------------------------------------------------------#
@@ -22,9 +27,11 @@ class device:
       self._Serial = Serial
       pytesseract.tesseract_cmd = r'tesseract'
 
+
    #---------------------------------------------------------------------------#
    def Dbg( self, Msg ):
       print(Msg)
+
 
    #---------------------------------------------------------------------------#
    def GetSize( self ):
@@ -36,6 +43,7 @@ class device:
          self._YSize = int( m.groups()[1], 10)
       print(res)
 
+
    #---------------------------------------------------------------------------#
    def Tap( self, RatioX, RatioY ):
       AbsX = RatioX * self._XSize
@@ -43,19 +51,41 @@ class device:
       Cmd = "adb -s %s shell input tap %d %d"%( self._Serial, AbsX, AbsY )
       subprocess.check_output( Cmd, shell=True)
 
+
    #---------------------------------------------------------------------------#
    def GetTextFromScreen( self ) :
-      Cmd = "adb exec-out screencap -p > _TmpSrc.png"
+      Cmd = "adb exec-out screencap -p > _TmpScr.png"
       subprocess.check_output( Cmd, shell=True)
                                     # Open image with PIL
-      img = Image.open("_TmpSrc.png")
+      img = Image.open("_TmpScr.png")
                                     # Extract text from image
       text = pytesseract.image_to_string(img)
 
-      Cmd = "rm _TmpSrc.png"
+      Cmd = "rm _TmpScr.png"
       subprocess.check_output( Cmd, shell=True)
 
       return text
+
+
+   #---------------------------------------------------------------------------#
+   def IsLogoInScreen( self, LogoFilename ):
+      Cmd = "adb exec-out screencap -p > _TmpScr.png"
+      subprocess.check_output( Cmd, shell=True)
+
+      Screen = cv2.imread( "_TmpScr.png" )
+      Logo = cv2.imread( LogoFilename )
+
+      Result = cv2.matchTemplate( Logo, Screen, cv2.TM_SQDIFF_NORMED )
+      mn,_,mnLoc,_ = cv2.minMaxLoc(Result)
+
+      Cmd = "rm _TmpScr.png"
+      subprocess.check_output( Cmd, shell=True)
+
+      if ( mn < 0.02 ):
+         return True
+      else:
+         return False
+
 
    #---------------------------------------------------------------------------#
    def Wakeup( self ):
@@ -69,23 +99,27 @@ class device:
       subprocess.check_output( Cmd, shell=True)
       time.sleep(5)
 
+
    #---------------------------------------------------------------------------#
    def LockitoStartTravel( self ):
 
       self.Tap( 0.4181, 0.1888 )
       time.sleep(3)
-      self.Tap( 0.88, 0.72 )                                                              # 642 1086 635 929
-      time.sleep(3)
 
-      #Cmd = "adb -s %s shell input tap 301 287"%self._Serial  # 0,4181, 0,1888
-      #subprocess.check_output( Cmd, shell=True)
-      #time.sleep(3)
-      #Cmd = "adb -s %s shell input tap 665 1164"%self._Serial # 0,9236, 0,7658
-      #subprocess.check_output( Cmd, shell=True)
-      #time.sleep(1)
-      #Cmd = "adb -s %s shell input tap 611 983"%self._Serial  # 0,8486  0,6467
-      #subprocess.check_output( Cmd, shell=True)
-      #time.sleep(1)
+      for i in range(0,3):             # execut 3 time play/stop travel to flush previous one
+         if self.IsLogoInScreen( "LockitoStop.png" ) :
+            self.Dbg("Lockito stop found")
+            self.Tap( 0.889, 0.749 )   # tap on stop
+         elif self.IsLogoInScreen( "LockitoPlay.png" ) :
+            self.Dbg("Lockito play found")
+            self.Tap( 0.889, 0.720 )   # tap on play
+         else:
+            raise ValueError( "detection toucke lockito impossible" )
+         time.sleep(2)
+
+      if self.IsLogoInScreen( "LockitoPlay.png" ) :
+         self.Tap( 0.889, 0.720 )      # tap on play
+         time.sleep(2)
 
 
    #---------------------------------------------------------------------------#
@@ -97,25 +131,18 @@ class device:
       self.WazeBullshitRemover()
       time.sleep(5)
       self.WazeBullshitRemover()
+      time.sleep(5)
+      self.WazeBullshitRemover()
 
       StdScreenTxt = self.GetTextFromScreen()
-
       self.Dbg(StdScreenTxt)
 
       if re.search( r'\d{1,2}:\d{1,2}\s*h\s*.*\s*\d+\s*km', StdScreenTxt) :
          self.Dbg("Parcours en cours trouvé")
-
          self.Tap( 0.8889, 0.9066 )    # tap on the little arrow to open travel
-         time.sleep(1)
-
-         self.Tap( 0.1583, 0.9066 )    # top on stop to cancel travel
-         time.sleep(1)
-
-      else:
-         self.Tap( 0.4972, 0.3704 )    # top on stop to cancel travel
-         time.sleep(1)
-
-      self.WazeBullshitRemover()
+         time.sleep(2)
+         self.Tap( 0.1583, 0.9066 )    # tap on stop to cancel travel
+         time.sleep(2)
 
 
    #---------------------------------------------------------------------------#
@@ -135,15 +162,18 @@ class device:
 
    #---------------------------------------------------------------------------#
    def WazeGoto( self, Name ):
-                                       # Tap directly to search bar
-      self.Tap( 0.5, 0.82 )                                                            # 374 1238 ->0,516666667, 0,814473684  352 1062 -> 0.488, 0,8296875
+
+      self.Tap( 0.282, 0.907 )         # Tap on "mon waze"
+      time.sleep(2)
+
+      self.Tap( 0.417, 0.338 )          # Tap to search bar
       time.sleep(2)
                                        # enter search name
       Cmd = "adb -s %s shell input text %s"%(self._Serial, Name)
       subprocess.check_output( Cmd, shell=True)
-
+      time.sleep(4)
                                        # Tap to 2nd proposition
-      self.Tap( 0.5, 0.3 )                                                                # 433 -> 0,284868421 427 ->0,33359375
+      self.Tap( 0.5, 0.3 )
       time.sleep(3)
                                        # Tap to "y aller"
       self.Tap( 0.6972, 0.9237 )
@@ -153,33 +183,8 @@ class device:
 
       self.Dbg("Go to %s"%Name)
 
-      time.sleep(15)
+      time.sleep(5)
 
-      # Cmd = "adb -s %s shell input keyevent 66"%(self._Serial)
-      # subprocess.check_output( Cmd, shell=True)
-      # time.sleep(5)
-
-      # self.Tap( 0.4458, 0.3138 )
-      # time.sleep(3)
-      # self.Tap( 0.6972, 0.9237 )
-      # time.sleep(3)
-      # self.Tap( 0.6972, 0.9237 )
-      # time.sleep(5)
-      # self.Tap( 0.4875, 0.5993 )
-      # time.sleep(1)
-
-      #Cmd = "adb -s %s shell input tap 321 477"%self._Serial                              # 0,4458, 0,3138
-      #subprocess.check_output( Cmd, shell=True)
-      #time.sleep(3)
-      #Cmd = "adb -s %s shell input tap 502 1404"%self._Serial                             # 0,6972, 0,9237
-      #subprocess.check_output( Cmd, shell=True)
-      #time.sleep(3)
-      #Cmd = "adb -s %s shell input tap 502 1404"%self._Serial                             # 0,6972, 0,9237
-      #subprocess.check_output( Cmd, shell=True)
-      #time.sleep(5)
-      #Cmd = "adb -s %s shell input tap 351 911"%self._Serial                              # 0,4875, 0,5993
-      #subprocess.check_output( Cmd, shell=True)
-      #time.sleep(1)
 
    #---------------------------------------------------------------------------#
    def WazeSignalDeadbeef( self ):
@@ -239,8 +244,8 @@ if __name__ == "__main__" :
       time.sleep(3)
       DevObj.GetSize()
 
-      #DevObj.LockitoStart()
-      #DevObj.LockitoStartTravel()
+      DevObj.LockitoStart()
+      DevObj.LockitoStartTravel()
 
       DevObj.WazeStart()
       DevObj.WazeGoto( "Cuculet" )        # Note : doit être une ville sans crit'air
@@ -248,3 +253,7 @@ if __name__ == "__main__" :
 
       time.sleep(3)
       #DevObj.WazeSignalDeadbeef()
+
+   # TODO : prévoir un arrêt propre, en stoppant l'itinéraire en cours pour éviter autant que possible les lag
+
+   # TODO : prévoir des retries successif jusau'à ce qu'on ai XX:XX h © XX km
